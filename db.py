@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS pool(
 CREATE TABLE IF NOT EXISTS rejected(
     user_id INTEGER, src TEXT, track_id TEXT,
     PRIMARY KEY(user_id, src, track_id));
+CREATE TABLE IF NOT EXISTS users(
+    user_id INTEGER PRIMARY KEY, lang TEXT);
 CREATE TABLE IF NOT EXISTS playlist(
     user_id INTEGER, track_id TEXT, added_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(user_id, track_id));
@@ -107,6 +109,21 @@ async def clear_playlist(uid):
 
 async def delete_user(uid):
     async with _conn() as db:
-        for t in ("pool", "rejected", "playlist"):
+        for t in ("pool", "rejected", "playlist", "users"):
             await db.execute(f"DELETE FROM {t} WHERE user_id=?", (uid,))
         await db.commit()
+
+
+async def set_lang(uid, lang):
+    async with _conn() as db:
+        await db.execute(
+            "INSERT INTO users(user_id, lang) VALUES(?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET lang=excluded.lang", (uid, lang))
+        await db.commit()
+
+
+async def get_lang(uid):
+    async with _conn() as db:
+        cur = await db.execute("SELECT lang FROM users WHERE user_id=?", (uid,))
+        r = await cur.fetchone()
+        return r[0] if r and r[0] else "en"

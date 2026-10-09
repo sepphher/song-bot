@@ -14,6 +14,15 @@ def cand(title, artist, url=""):
     return {"id": make_id(title, artist), "title": title, "artist": artist, "url": url}
 
 
+def _dedupe(found, n):
+    seen, out = set(), []
+    for c in found:
+        if c["id"] not in seen:
+            seen.add(c["id"])
+            out.append(c)
+    return out[:n]
+
+
 async def from_shazam(path):
     r = await Shazam().recognize(path)
     t = r.get("track")
@@ -34,6 +43,18 @@ async def from_audd(path):
     return [cand(res["title"], res["artist"], res.get("song_link", ""))] if res else []
 
 
+async def from_lyrics(q):
+    """Search by a line of lyrics (AudD)."""
+    if not AUDD_TOKEN:
+        return []
+    async with aiohttp.ClientSession() as s:
+        async with s.get("https://api.audd.io/findLyrics/",
+                         params={"q": q, "api_token": AUDD_TOKEN}) as r:
+            j = await r.json(content_type=None)
+    return [cand(x["title"], x.get("artist", ""))
+            for x in (j.get("result") or [])[:3] if x.get("title")]
+
+
 async def from_itunes(term, limit=5):
     if not term or not term.strip():
         return []
@@ -46,6 +67,7 @@ async def from_itunes(term, limit=5):
 
 
 async def build_pool(audio, meta, max_items=8):
+    """From an audio clip (+ optional Instagram/yt-dlp metadata)."""
     found = []
     if audio:
         results = await asyncio.gather(from_shazam(audio), from_audd(audio),
@@ -61,9 +83,16 @@ async def build_pool(audio, meta, max_items=8):
         found += await from_itunes(seed)
     except Exception:
         pass
-    seen, out = set(), []
-    for c in found:
-        if c["id"] not in seen:
-            seen.add(c["id"])
-            out.append(c)
-    return out[:max_items]
+    return _dedupe(found, max_items)
+
+
+async def search_text(q, max_items=8):
+    """From typed text: song/artist name, or a line of lyrics (4+ words)."""
+    tasks = [from_itunes(q, 6)]
+    if len(q.split()) >= 4:
+        tasks.insert(0, from_lyrics(q))
+    found = []
+    for r in await asyncio.gather(*tasks, return_exceptions=True):
+        if isinstance(r, list):
+            found += r
+    return _dedupe(found, max_items)
