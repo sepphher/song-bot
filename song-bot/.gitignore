@@ -1,0 +1,11 @@
+.env
+data/*
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+cookies.txt
+cookies.enc
+__pycache__/
+*.pyc
+venv/
